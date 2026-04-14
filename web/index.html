@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voxel Workbench</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">HTML voxel to Blockbench</p>
+        <h1>Voxel Workbench</h1>
+        <p class="lede">
+          把 AI 生成的 Three.js HTML 场景整理成可继续进入 Minecraft 开发链路的 <code>.bbmodel</code>。
+        </p>
+      </section>
+
+      <section class="workspace">
+        <div class="workspace-head">
+          <div>
+            <h2>转换面板</h2>
+            <p>支持拖拽上传 HTML，或直接运行仓库里的示例文件。</p>
+          </div>
+          <div class="status-pill" id="statusPill">等待输入</div>
+        </div>
+
+        <form id="convertForm" class="form-grid">
+          <label class="field field-wide">
+            <span>输入方式</span>
+            <div class="segmented">
+              <button type="button" class="segment is-active" data-mode="upload">上传 HTML</button>
+              <button type="button" class="segment" data-mode="example">示例文件</button>
+            </div>
+          </label>
+
+          <div class="field field-wide" id="uploadField">
+            <span>HTML 文件</span>
+            <label class="dropzone" id="dropzone">
+              <input id="htmlFile" type="file" accept=".html,.htm" />
+              <strong id="dropzoneTitle">拖拽 HTML 到这里</strong>
+              <p id="dropzoneMeta">或点击选择文件</p>
+            </label>
+          </div>
+
+          <label class="field field-wide hidden" id="exampleField">
+            <span>示例文件</span>
+            <select id="exampleSelect"></select>
+          </label>
+
+          <label class="field">
+            <span>输出格式</span>
+            <select id="formatSelect">
+              <option value="modded_entity">Modded Entity</option>
+              <option value="java_block">Java Block/Item</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>最长边</span>
+            <input id="maxEdgeInput" type="number" min="1" step="1" placeholder="例如 16" />
+          </label>
+
+          <label class="field field-wide">
+            <span>输出名称</span>
+            <input id="outputNameInput" type="text" placeholder="可选，默认沿用源文件名" />
+          </label>
+
+          <div class="actions field-wide">
+            <button type="submit" class="primary">开始转换</button>
+            <p class="hint">`Java Block/Item` 适合静态方块，`Modded Entity` 更适合实体和后续手调。</p>
+          </div>
+        </form>
+      </section>
+
+      <section class="result">
+        <div class="workspace-head">
+          <div>
+            <h2>导出</h2>
+            <p>转换完成后直接下载结果文件。</p>
+          </div>
+        </div>
+        <div class="download-wrap">
+          <a id="downloadLink" class="download-link hidden" href="#">下载结果</a>
+          <p id="downloadEmpty" class="download-empty">还没有生成可下载的文件。</p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

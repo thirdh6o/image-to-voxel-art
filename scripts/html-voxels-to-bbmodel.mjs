@@ -4,8 +4,15 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 
+const SUPPORTED_FORMATS = new Set(['free', 'modded_entity', 'java_block']);
+const DEFAULT_FORMAT = 'modded_entity';
+const JAVA_BLOCK_AXIS_LIMITS = [-16, 32];
+const JAVA_BLOCK_AXIS_CENTER = (JAVA_BLOCK_AXIS_LIMITS[0] + JAVA_BLOCK_AXIS_LIMITS[1]) / 2;
+
 function usage() {
-  console.log('Usage: node scripts/html-voxels-to-bbmodel.mjs <input.html> [output.bbmodel]');
+  console.log(
+    'Usage: node scripts/html-voxels-to-bbmodel.mjs <input.html> [output.bbmodel] [--max-edge <number>] [--format <modded_entity|java_block|free>]',
+  );
 }
 
 function extractModuleScript(html) {
@@ -380,13 +387,13 @@ function mergeVoxels(voxels) {
     const startKey = coordKey(voxel.x, voxel.y, voxel.z);
     if (visited.has(startKey)) continue;
 
-    const { x, y, z, color } = voxel;
+    const { x, y, z, color, group = null } = voxel;
 
     let width = 1;
     while (true) {
       const nextKey = coordKey(x + width, y, z);
       const nextVoxel = voxelMap.get(nextKey);
-      if (!nextVoxel || nextVoxel.color !== color || visited.has(nextKey)) break;
+      if (!nextVoxel || nextVoxel.color !== color || nextVoxel.group !== group || visited.has(nextKey)) break;
       width += 1;
     }
 
@@ -396,7 +403,7 @@ function mergeVoxels(voxels) {
       for (let dx = 0; dx < width; dx += 1) {
         const nextKey = coordKey(x + dx, y + height, z);
         const nextVoxel = voxelMap.get(nextKey);
-        if (!nextVoxel || nextVoxel.color !== color || visited.has(nextKey)) {
+        if (!nextVoxel || nextVoxel.color !== color || nextVoxel.group !== group || visited.has(nextKey)) {
           break heightLoop;
         }
       }
@@ -410,7 +417,7 @@ function mergeVoxels(voxels) {
         for (let dx = 0; dx < width; dx += 1) {
           const nextKey = coordKey(x + dx, y + dy, z + depth);
           const nextVoxel = voxelMap.get(nextKey);
-          if (!nextVoxel || nextVoxel.color !== color || visited.has(nextKey)) {
+          if (!nextVoxel || nextVoxel.color !== color || nextVoxel.group !== group || visited.has(nextKey)) {
             break depthLoop;
           }
         }
@@ -430,6 +437,7 @@ function mergeVoxels(voxels) {
       from: [x, y, z],
       to: [x + width, y + height, z + depth],
       color,
+      group,
     });
   }
 
@@ -520,6 +528,176 @@ function buildFaceUv(index, width, height) {
   return [x, y, x + 1, y + 1];
 }
 
+function getCuboidBounds(cuboids) {
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+
+  for (const cuboid of cuboids) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      min[axis] = Math.min(min[axis], cuboid.from[axis], cuboid.to[axis]);
+      max[axis] = Math.max(max[axis], cuboid.from[axis], cuboid.to[axis]);
+    }
+  }
+
+  return {
+    min,
+    max,
+    size: [
+      max[0] - min[0],
+      max[1] - min[1],
+      max[2] - min[2],
+    ],
+  };
+}
+
+function inferAxisOffset(cuboids, axis) {
+  const counts = new Map();
+
+  for (const cuboid of cuboids) {
+    const value = cuboid.from[axis];
+    const normalized = (((value % 1) + 1) % 1);
+    const key = Math.round(normalized * 1000) / 1000;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  let bestKey = 0;
+  let bestCount = -1;
+  for (const [key, count] of counts) {
+    if (count > bestCount) {
+      bestKey = key;
+      bestCount = count;
+    }
+  }
+
+  return bestKey;
+}
+
+function cuboidsToUnitVoxels(cuboids) {
+  const offsets = [
+    inferAxisOffset(cuboids, 0),
+    inferAxisOffset(cuboids, 1),
+    inferAxisOffset(cuboids, 2),
+  ];
+  const voxels = [];
+
+  for (const cuboid of cuboids) {
+    const [fromX, fromY, fromZ] = cuboid.from;
+    const [toX, toY, toZ] = cuboid.to;
+
+    const startX = Math.round((fromX - offsets[0]) * 1000) / 1000;
+    const startY = Math.round((fromY - offsets[1]) * 1000) / 1000;
+    const startZ = Math.round((fromZ - offsets[2]) * 1000) / 1000;
+    const width = Math.round((toX - fromX) * 1000) / 1000;
+    const height = Math.round((toY - fromY) * 1000) / 1000;
+    const depth = Math.round((toZ - fromZ) * 1000) / 1000;
+
+    const countX = Math.max(1, Math.round(width));
+    const countY = Math.max(1, Math.round(height));
+    const countZ = Math.max(1, Math.round(depth));
+
+    for (let ix = 0; ix < countX; ix += 1) {
+      for (let iy = 0; iy < countY; iy += 1) {
+        for (let iz = 0; iz < countZ; iz += 1) {
+          voxels.push({
+            x: Math.round((offsets[0] + startX + ix) * 1000) / 1000,
+            y: Math.round((offsets[1] + startY + iy) * 1000) / 1000,
+            z: Math.round((offsets[2] + startZ + iz) * 1000) / 1000,
+            color: cuboid.color,
+            group: cuboid.group || null,
+          });
+        }
+      }
+    }
+  }
+
+  return voxels;
+}
+
+function downsampleVoxelsToMaxEdge(voxels, maxEdge) {
+  if (!voxels.length || !Number.isFinite(maxEdge) || maxEdge <= 0) {
+    return {
+      voxels,
+      sourceBounds: null,
+      targetBounds: null,
+      downsampleFactor: 1,
+    };
+  }
+
+  const sourceCuboids = voxels.map((voxel) => ({
+    from: [voxel.x, voxel.y, voxel.z],
+    to: [voxel.x + 1, voxel.y + 1, voxel.z + 1],
+  }));
+  const sourceBounds = getCuboidBounds(sourceCuboids);
+  const longestEdge = Math.max(...sourceBounds.size);
+
+  if (!Number.isFinite(longestEdge) || longestEdge <= maxEdge) {
+    return {
+      voxels,
+      sourceBounds,
+      targetBounds: sourceBounds,
+      downsampleFactor: 1,
+    };
+  }
+
+  const factor = longestEdge / maxEdge;
+  const buckets = new Map();
+
+  for (const voxel of voxels) {
+    const ix = Math.floor((voxel.x - sourceBounds.min[0]) / factor);
+    const iy = Math.floor((voxel.y - sourceBounds.min[1]) / factor);
+    const iz = Math.floor((voxel.z - sourceBounds.min[2]) / factor);
+    const bucketKey = `${ix},${iy},${iz}`;
+
+    if (!buckets.has(bucketKey)) {
+      buckets.set(bucketKey, {
+        x: ix,
+        y: iy,
+        z: iz,
+        colorCounts: new Map(),
+        groupCounts: new Map(),
+      });
+    }
+
+    const bucket = buckets.get(bucketKey);
+    bucket.colorCounts.set(voxel.color, (bucket.colorCounts.get(voxel.color) || 0) + 1);
+    if (voxel.group) {
+      bucket.groupCounts.set(voxel.group, (bucket.groupCounts.get(voxel.group) || 0) + 1);
+    }
+  }
+
+  const chooseMaxCount = (map) => {
+    let bestKey = null;
+    let bestCount = -1;
+    for (const [key, count] of map) {
+      if (count > bestCount) {
+        bestKey = key;
+        bestCount = count;
+      }
+    }
+    return bestKey;
+  };
+
+  const downsampled = [...buckets.values()].map((bucket) => ({
+    x: bucket.x,
+    y: bucket.y,
+    z: bucket.z,
+    color: chooseMaxCount(bucket.colorCounts),
+    group: chooseMaxCount(bucket.groupCounts),
+  }));
+
+  const targetCuboids = downsampled.map((voxel) => ({
+    from: [voxel.x, voxel.y, voxel.z],
+    to: [voxel.x + 1, voxel.y + 1, voxel.z + 1],
+  }));
+
+  return {
+    voxels: downsampled,
+    sourceBounds,
+    targetBounds: getCuboidBounds(targetCuboids),
+    downsampleFactor: factor,
+  };
+}
+
 function normalizeCapturedCubes(cubes) {
   const getWorldPosition = (object) => {
     let current = object;
@@ -577,7 +755,71 @@ function normalizeCapturedCubes(cubes) {
     .filter(Boolean);
 }
 
-function buildBbmodel(cuboids, name, route) {
+function translateCuboids(cuboids, offset) {
+  return cuboids.map((cuboid) => ({
+    ...cuboid,
+    from: cuboid.from.map((value, axis) => Math.round((value + offset[axis]) * 1000) / 1000),
+    to: cuboid.to.map((value, axis) => Math.round((value + offset[axis]) * 1000) / 1000),
+  }));
+}
+
+function adaptCuboidsForJavaBlock(cuboids) {
+  const bounds = getCuboidBounds(cuboids);
+  const center = bounds.min.map((value, axis) => (value + bounds.max[axis]) / 2);
+  const offset = center.map((value) => JAVA_BLOCK_AXIS_CENTER - value);
+  const translated = translateCuboids(cuboids, offset);
+  const translatedBounds = getCuboidBounds(translated);
+  const warnings = [];
+
+  translatedBounds.size.forEach((size, axis) => {
+    if (size > JAVA_BLOCK_AXIS_LIMITS[1] - JAVA_BLOCK_AXIS_LIMITS[0]) {
+      warnings.push(
+        `Axis ${'XYZ'[axis]} size ${size.toFixed(3)} exceeds Java Block range ${JAVA_BLOCK_AXIS_LIMITS[0]}..${JAVA_BLOCK_AXIS_LIMITS[1]}.`,
+      );
+    }
+  });
+
+  translatedBounds.min.forEach((value, axis) => {
+    if (value < JAVA_BLOCK_AXIS_LIMITS[0] || translatedBounds.max[axis] > JAVA_BLOCK_AXIS_LIMITS[1]) {
+      warnings.push(
+        `Axis ${'XYZ'[axis]} bounds ${value.toFixed(3)}..${translatedBounds.max[axis].toFixed(3)} exceed Java Block limits.`,
+      );
+    }
+  });
+
+  return {
+    cuboids: translated,
+    bounds: translatedBounds,
+    warnings,
+  };
+}
+
+function getFormatProfile(format) {
+  if (format === 'java_block') {
+    return {
+      modelFormat: 'java_block',
+      boxUv: false,
+      textureNameSuffix: 'java_block',
+    };
+  }
+
+  if (format === 'free') {
+    return {
+      modelFormat: 'free',
+      boxUv: false,
+      textureNameSuffix: 'free',
+    };
+  }
+
+  return {
+    modelFormat: 'modded_entity',
+    boxUv: false,
+    textureNameSuffix: 'modded_entity',
+  };
+}
+
+function buildBbmodel(cuboids, name, route, format) {
+  const formatProfile = getFormatProfile(format);
   const uniqueColors = [...new Set(cuboids.map((cuboid) => cuboid.color))];
   const colorIndex = new Map(uniqueColors.map((color, index) => [color, index]));
   const textureWidth = Math.min(uniqueColors.length, 256);
@@ -631,10 +873,11 @@ function buildBbmodel(cuboids, name, route) {
   return {
     meta: {
       format_version: '3.6',
-      model_format: 'free',
-      box_uv: false,
+      model_format: formatProfile.modelFormat,
+      box_uv: formatProfile.boxUv,
     },
     name,
+    geometry_name: name,
     route,
     resolution: {
       width: textureWidth,
@@ -645,7 +888,7 @@ function buildBbmodel(cuboids, name, route) {
     textures: [
       {
         id: '0',
-        name: `${name}_palette.png`,
+        name: `${name}_${formatProfile.textureNameSuffix}_palette.png`,
         source: `data:image/png;base64,${palettePng.toString('base64')}`,
       },
     ],
@@ -662,7 +905,41 @@ function runScriptWithRoute(script, inputPath) {
 }
 
 async function main() {
-  const [, , inputPathArg, outputPathArg] = process.argv;
+  const args = process.argv.slice(2);
+  const positional = [];
+  let maxEdge = null;
+  let format = DEFAULT_FORMAT;
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--max-edge') {
+      const next = args[i + 1];
+      if (!next) {
+        throw new Error('Missing value for --max-edge');
+      }
+      maxEdge = Number(next);
+      if (!Number.isFinite(maxEdge) || maxEdge <= 0) {
+        throw new Error('--max-edge must be a positive number.');
+      }
+      i += 1;
+      continue;
+    }
+    if (arg === '--format') {
+      const next = args[i + 1];
+      if (!next) {
+        throw new Error('Missing value for --format');
+      }
+      if (!SUPPORTED_FORMATS.has(next)) {
+        throw new Error(`Unsupported format "${next}". Expected one of: ${[...SUPPORTED_FORMATS].join(', ')}`);
+      }
+      format = next;
+      i += 1;
+      continue;
+    }
+    positional.push(arg);
+  }
+
+  const [inputPathArg, outputPathArg] = positional;
 
   if (!inputPathArg) {
     usage();
@@ -673,7 +950,7 @@ async function main() {
   const inputPath = path.resolve(inputPathArg);
   const outputPath = outputPathArg
     ? path.resolve(outputPathArg)
-    : inputPath.replace(/\.html?$/i, '.bbmodel');
+    : inputPath.replace(/\.html?$/i, format === DEFAULT_FORMAT ? '.bbmodel' : `-${format}.bbmodel`);
 
   const html = await fs.readFile(inputPath, 'utf8');
   const moduleScript = extractModuleScript(html);
@@ -701,13 +978,36 @@ async function main() {
     sourceCount = cubes.length;
   }
 
-  const bbmodel = buildBbmodel(cuboids, path.basename(outputPath, '.bbmodel'), route);
+  let finalCuboids = cuboids;
+  let downsampleInfo = null;
+  if (maxEdge) {
+    const unitVoxels = cuboidsToUnitVoxels(cuboids);
+    downsampleInfo = downsampleVoxelsToMaxEdge(unitVoxels, maxEdge);
+    finalCuboids = mergeVoxels(downsampleInfo.voxels);
+  }
+
+  let formatWarnings = [];
+  if (format === 'java_block') {
+    const adapted = adaptCuboidsForJavaBlock(finalCuboids);
+    finalCuboids = adapted.cuboids;
+    formatWarnings = adapted.warnings;
+  }
+
+  const bbmodel = buildBbmodel(finalCuboids, path.basename(outputPath, '.bbmodel'), route, format);
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await fs.writeFile(outputPath, JSON.stringify(bbmodel), 'utf8');
 
+  console.log(`Format ${format}`);
   console.log(`Route ${route}`);
   console.log(`Captured ${sourceCount} source units`);
   console.log(`Merged to ${bbmodel.elements.length} cuboids`);
+  if (maxEdge && downsampleInfo) {
+    console.log(`Downsampled longest edge to <= ${maxEdge} (factor ${downsampleInfo.downsampleFactor.toFixed(6)})`);
+    console.log(`Final bounds: ${downsampleInfo.targetBounds.size.map((n) => n.toFixed(3)).join(' x ')}`);
+  }
+  for (const warning of formatWarnings) {
+    console.warn(`Warning: ${warning}`);
+  }
   console.log(`Wrote ${outputPath}`);
 }
 

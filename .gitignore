@@ -1,4 +1,5 @@
 node_modules/
+.tmp/
 
 output/
 !output/.gitkeep
