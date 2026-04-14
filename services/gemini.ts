@@ -8,7 +8,7 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import { extractHtmlFromText } from "../utils/html";
 
 // Initialize Gemini Client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
 
 export const IMAGE_SYSTEM_PROMPT = "Generate an isolated object/scene on a simple background.";
 export const VOXEL_PROMPT = "I have provided an image. Code a beautiful voxel art scene inspired by this image. Write threejs code as a single-page.";
