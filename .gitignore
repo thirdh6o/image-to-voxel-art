@@ -11,3 +11,5 @@ Thumbs.db
 
 ex/
 output/
+.cache/
+release/
