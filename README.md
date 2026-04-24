@@ -1,6 +1,6 @@
 # Voxel Workbench
 
-一个把 HTML voxel 场景转换成 Blockbench `.bbmodel` 的小工具，专门用于处理 Google AI Studio 这个页面产出的 HTML 文件：
+一个把 HTML voxel 场景转换成 Blockbench `.bbmodel` 的本地工具，专门用于处理 Google AI Studio 这个页面产出的 HTML 文件：
 
 - [https://aistudio.google.com/apps/bundled/image_to_voxel](https://aistudio.google.com/apps/bundled/image_to_voxel)
 
@@ -9,11 +9,11 @@
 - `Modded Entity`
 - `Java Block/Item`
 
-项目同时提供：
+项目当前主要提供：
 
 - 命令行脚本
 - 本地 Web 界面
-- Electron 桌面版
+- `start.bat` 一键启动入口
 
 ## 使用手册
 
@@ -22,6 +22,17 @@
 这个工具的目标很明确：
 
 把 `https://aistudio.google.com/apps/bundled/image_to_voxel` 生成的 HTML voxel 场景，转换成可以在 Blockbench 里继续编辑的 `.bbmodel` 文件，方便继续进入 Minecraft 开发流程。
+
+### 最简单的使用方式
+
+1. 安装 Node.js 18+
+2. 下载本项目文件
+3. 双击 `start.bat`
+4. 浏览器会自动打开本地页面
+5. 拖拽上传 HTML 文件
+6. 选择输出格式
+7. 点击“开始转换”
+8. 下载生成的 `.bbmodel`
 
 ### 适合什么输入
 
@@ -59,16 +70,6 @@
 - `Java Block/Item` 更适合静态模型
 - 复杂动态表现通常应走 `BlockEntityRenderer`
 
-### 桌面版怎么用
-
-1. 从 GitHub Release 下载 `setup.exe`
-2. 安装并启动 `Voxel Workbench`
-3. 拖拽上传 HTML 文件，或者选择仓库内示例
-4. 选择输出格式
-5. 如有需要，填写最长边
-6. 点击“开始转换”
-7. 下载生成的 `.bbmodel`
-
 ### 参数该怎么选
 
 #### 输出格式
@@ -92,6 +93,26 @@
 - 支持最长边降采样
 - 输出为 Blockbench 可继续编辑的 `.bbmodel`
 
+## 本地 Web 界面
+
+如果你想手动启动：
+
+```bash
+npm run dev
+```
+
+然后打开：
+
+- [http://127.0.0.1:4173/](http://127.0.0.1:4173/)
+
+界面支持：
+
+- 拖拽上传 HTML
+- 选择示例文件
+- 选择输出格式
+- 设置最长边
+- 下载生成的 `.bbmodel`
+
 ## 命令行用法
 
 基础转换：
@@ -114,87 +135,30 @@ npm run convert -- input.html output.bbmodel --format java_block --max-edge 16
 
 如果不传 `--format`，默认使用 `modded_entity`。
 
-## 本地 Web 界面
-
-启动：
-
-```bash
-npm run dev
-```
-
-然后打开：
-
-- [http://127.0.0.1:4173/](http://127.0.0.1:4173/)
-
-界面支持：
-
-- 拖拽上传 HTML
-- 选择示例文件
-- 选择输出格式
-- 设置最长边
-- 下载生成的 `.bbmodel`
-
-## 桌面版
-
-启动 Electron：
-
-```bash
-npm run desktop
-```
-
-## 打包 Windows 安装包
-
-项目已接入 Electron + `electron-builder`。
-
-打包命令：
-
-```bash
-npm run dist:win
-```
-
-输出目录：
-
-- `release/`
-
-当前安装包文件名示例：
-
-- `Voxel-Workbench-0.1.0-win-x64-setup.exe`
-
-## 镜像说明
-
-为避免 Electron 与 `electron-builder` 下载失败，项目使用项目级 `.npmrc` 镜像配置：
-
-- `registry=https://registry.npmmirror.com`
-- `electron_mirror=https://npmmirror.com/mirrors/electron/`
-- `electron_builder_binaries_mirror=https://npmmirror.com/mirrors/electron-builder-binaries/`
-
-## 项目结构
+## 目录说明
 
 ```text
 .
 ├─ web/                     前端界面
 ├─ scripts/
 │  ├─ html-voxels-to-bbmodel.mjs
-│  ├─ build-win-installer.mjs
 │  └─ generate-icon.ps1
 ├─ ex/                      示例 HTML
 ├─ output/                  转换输出
-├─ build/                   打包资源
-├─ electron-main.mjs        Electron 主进程
 ├─ server.mjs               本地服务
+├─ start.bat                一键启动
 ├─ package.json
-└─ .npmrc
+└─ AGENTS.md
 ```
 
 ## Release 建议
 
-发布 GitHub Release 时建议附上：
+如果后续用 GitHub Release 分发，推荐优先发：
 
-- `Voxel-Workbench-<version>-win-x64-setup.exe`
+- 项目源码压缩包
 
-推荐简介可写成：
+并在说明里写明：
 
-- 处理 Google AI Studio `image_to_voxel` 产出的 HTML voxel 场景
-- 转换为 Blockbench 可编辑的 `.bbmodel`
-- 支持 `Modded Entity` / `Java Block/Item`
-- 支持拖拽上传和最长边降采样
+- 这是处理 Google AI Studio `image_to_voxel` HTML 产物的本地工具
+- 双击 `start.bat` 即可启动
+- 需要本机已安装 Node.js 18+
